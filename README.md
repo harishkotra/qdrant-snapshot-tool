@@ -4,6 +4,8 @@ A simple web application that lets users upload `.txt`, `.md`, `.csv`, or `.pdf`
 
 The resulting snapshot can be downloaded directly by the user for use in Gaia nodes or other RAG systems.
 
+![image](https://github.com/user-attachments/assets/1a232323-da42-4317-b266-42694a06160a)
+
 ---
 
 ## 🔧 Features
