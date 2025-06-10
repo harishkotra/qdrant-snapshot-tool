@@ -1,0 +1,8 @@
+fastapi
+uvicorn
+qdrant-client
+huggingface_hub
+python-dotenv
+requests
+pdfplumber
+markdownify

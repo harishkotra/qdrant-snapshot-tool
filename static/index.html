@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Qdrant Snapshot Generator</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 0;
+      padding: 0;
+      background-color: #f4f4f4;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+    }
+
+    .container {
+      text-align: center;
+      background: white;
+      padding: 30px;
+      border-radius: 8px;
+      box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
+      width: 500px;
+    }
+
+    h1, h2 {
+      color: #333;
+      margin-bottom: 20px;
+    }
+
+    form {
+      margin-top: 10px;
+      text-align: left;
+    }
+
+    label {
+      font-weight: bold;
+      display: block;
+      margin-bottom: 5px;
+    }
+
+    input[type="text"],
+    input[type="file"] {
+      width: 100%;
+      padding: 8px;
+      margin-bottom: 15px;
+      box-sizing: border-box;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+    }
+
+    button {
+      padding: 10px 20px;
+      background: #007BFF;
+      color: white;
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+      font-size: 16px;
+    }
+
+    button[disabled] {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+
+    .progress {
+      margin-top: 20px;
+      font-size: 16px;
+      color: #555;
+    }
+
+    .error {
+      color: red;
+      margin-top: 10px;
+    }
+
+    .success {
+      color: green;
+      margin-top: 10px;
+    }
+
+    .loader {
+      border: 4px solid #f3f3f3;
+      border-top: 4px solid #3498db;
+      border-radius: 50%;
+      width: 24px;
+      height: 24px;
+      display: inline-block;
+      animation: spin 1s linear infinite;
+      margin-right: 8px;
+      vertical-align: middle;
+    }
+
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+
+    ul {
+      list-style-type: none;
+      padding-left: 0;
+      margin-top: 20px;
+    }
+
+    li {
+      margin: 5px 0;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Upload Files to Create Qdrant Snapshot</h1>
+
+    <form id="uploadForm">
+      <label for="collectionName">Collection Name:</label>
+      <input type="text" id="collectionName" placeholder="Enter unique collection name" required />
+
+      <label for="fileInput">Select Files (max 10MB each):</label>
+      <input type="file" id="fileInput" accept=".txt,.md,.csv,.pdf" multiple required />
+
+      <button type="submit" id="uploadButton">Upload All</button>
+    </form>
+
+    <div id="progress" class="progress"></div>
+    <div id="result" class="success"></div>
+    <div id="error" class="error"></div>
+
+    <h2>History</h2>
+    <ul id="history"></ul>
+  </div>
+
+  <script>
+    const uploadForm = document.getElementById('uploadForm');
+    const uploadButton = document.getElementById('uploadButton');
+    const progressDiv = document.getElementById('progress');
+    const resultDiv = document.getElementById('result');
+    const errorDiv = document.getElementById('error');
+
+    // Enable/disable upload button
+    document.querySelectorAll('input').forEach(input => {
+      input.addEventListener('input', () => {
+        const file = document.getElementById('fileInput').files.length > 0;
+        const name = document.getElementById('collectionName').value.trim();
+        uploadButton.disabled = !(file && name);
+      });
+    });
+
+    async function checkCollectionExists(collectionName) {
+      try {
+        const res = await fetch(`http://localhost:8000/collections/${collectionName}`);
+        return res.ok;
+      } catch (err) {
+        console.error("Error checking collection:", err);
+        return false;
+      }
+    }
+
+    function saveSnapshotToHistory(collectionName) {
+      const history = JSON.parse(localStorage.getItem("snapshots") || "[]");
+      const entry = {
+        collection: collectionName,
+        timestamp: new Date().toISOString()
+      };
+      history.unshift(entry);
+      localStorage.setItem("snapshots", JSON.stringify(history));
+      loadHistory();
+    }
+
+    function formatBytes(bytes) {
+      if (bytes === 0) return '0 Bytes';
+      const k = 1024;
+      const sizes = ['Bytes', 'KB', 'MB'];
+      const i = Math.floor(Math.log(bytes) / Math.log(k));
+      return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+    }
+
+    function loadHistory() {
+      const history = JSON.parse(localStorage.getItem("snapshots")) || [];
+      const container = document.getElementById("history");
+
+      container.innerHTML = "";
+
+      if (history.length === 0) {
+        container.innerHTML = "<li>No uploads yet.</li>";
+        return;
+      }
+
+      history.forEach((entry, index) => {
+        const li = document.createElement("li");
+        li.innerHTML = `
+          <strong>${entry.collection}</strong> - 
+          <a href="/download/${entry.collection}" target="_blank">📥 Download</a> - 
+          <small>${new Date(entry.timestamp).toLocaleString()}</small>
+        `;
+        container.appendChild(li);
+      });
+    }
+
+    window.onload = () => {
+      loadHistory();
+    };
+
+    async function uploadAllFiles(files, collectionName) {
+      const total = files.length;
+
+      for (let i = 0; i < total; i++) {
+        const file = files[i];
+        progressDiv.innerHTML = `<span class="loader"></span> Uploading file ${i+1} of ${total}: ${file.name}`;
+
+        const formData = new FormData();
+        formData.append('file', file);
+        formData.append('collection_name', collectionName);
+
+        const res = await fetch('/upload/', {
+          method: 'POST',
+          body: formData
+        });
+
+        if (!res.ok) {
+          const err = await res.json();
+          throw new Error(`File "${file.name}" upload failed: ${JSON.stringify(err.detail || err)}`);
+        }
+
+        const data = await res.json();
+        console.log("Uploaded file:", file.name, data);
+      }
+
+      progressDiv.innerHTML = '<span class="loader"></span> Creating snapshot...';
+
+      const snapRes = await fetch('/snapshot/', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ collection_name: collectionName })
+      });
+
+      console.log("Snapshot response status:", snapRes.status);
+      
+      if (!snapRes.ok) {
+        const err = await snapRes.json();
+        throw new Error(`Snapshot creation failed: ${JSON.stringify(err.detail || err)}`);
+      }
+
+      const snapData = await snapRes.json();
+      const snapshotFile = snapData.snapshot_file;
+
+      console.log("Snapshot file path:", snapshotFile);
+
+      // Save to history
+      saveSnapshotToHistory(collectionName);
+
+      // Show final result
+      resultDiv.innerHTML = `
+        <p><a href="/download/${collectionName}" target="_blank">📥 Download Snapshot</a></p>
+        <p>Your snapshot is ready. Click the link above to download it.</p>
+      `;
+      progressDiv.textContent = 'Done!';
+    }
+
+    async function uploadFile() {
+      const files = document.getElementById('fileInput').files;
+      const collectionName = document.getElementById('collectionName').value.trim();
+
+      // Reset messages
+      progressDiv.textContent = '';
+      resultDiv.textContent = '';
+      errorDiv.textContent = '';
+
+      if (!files.length || !collectionName) {
+        errorDiv.textContent = "Please select at least one file and enter a collection name.";
+        return;
+      }
+
+      // Check file size
+      let totalSize = 0;
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        if (file.size > 10 * 1024 * 1024) {
+          errorDiv.textContent = `File "${file.name}" exceeds 10 MB limit.`;
+          return;
+        }
+        totalSize += file.size;
+      }
+
+      // Check if collection exists
+      progressDiv.innerHTML = '<span class="loader"></span> Checking collection...';
+      const exists = await checkCollectionExists(collectionName);
+
+      if (exists) {
+        errorDiv.textContent = "Collection already exists. Please choose another name.";
+        progressDiv.textContent = '';
+        return;
+      }
+
+      try {
+        await uploadAllFiles(files, collectionName);
+      } catch (e) {
+        errorDiv.textContent = "Error: " + e.message;
+        console.error(e);
+      }
+    }
+
+    uploadForm.addEventListener('submit', (e) => {
+      e.preventDefault(); // Prevent default form submission
+      uploadButton.disabled = true;
+      errorDiv.textContent = '';
+      uploadFile();
+    });
+  </script>
+</body>
+</html>
