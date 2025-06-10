@@ -56,6 +56,7 @@ Then open:
 
 ## Project Structure
 
+```
 qdrant-snapshot-web/
 ├── app/
 │   ├── main.py
@@ -73,6 +74,7 @@ qdrant-snapshot-web/
 ├── docker-compose.yml
 ├── Dockerfile
 └── requirements.txt
+```
 
 ## 🛠️ Development Setup (Optional) 
 
